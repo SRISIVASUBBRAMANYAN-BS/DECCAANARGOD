@@ -1,0 +1,184 @@
+/* Color system (3-5 colors total)
+   - Primary: teal (#0d9488)
+   - Neutrals: white (#ffffff), graphite (#111827), gray (#6b7280)
+   - Accent: amber (#f59e0b)
+*/
+:root {
+  --bg: #0b0f14; /* very dark blue/graphite */
+  --fg: #e5e7eb; /* neutral-200 text */
+  --muted: #9ca3af; /* gray-400 */
+  --primary: #0d9488; /* teal-600 */
+  --accent: #f59e0b; /* amber-500 */
+  --danger: #ef4444; /* red-500 (used sparingly) */
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.app-header {
+  position: fixed;
+  z-index: 5;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .25rem;
+  padding: .75rem 1rem;
+  background: rgba(11, 15, 20, 0.7);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid rgba(229, 231, 235, 0.08);
+}
+.title {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: .2px;
+  color: var(--fg);
+  font-size: clamp(18px, 4vw, 22px);
+}
+.subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.stage {
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.cam {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain; /* Keep geometry predictable for overlay mapping */
+  background: #000;
+}
+
+/* Overlay anchored to detected region */
+.overlay {
+  position: absolute;
+  border: 2px solid rgba(245, 158, 11, 0.8); /* accent frame */
+  border-radius: 8px;
+  overflow: hidden;
+  pointer-events: none;
+  transform-origin: top left;
+  z-index: 3;
+}
+
+/* GIFs stack, only one shows at a time */
+.gif {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Fallback overlay when GIFs are missing */
+.gif-fallback {
+  position: absolute;
+  inset: 0;
+  background: rgba(13, 148, 136, 0.2);
+  display: grid;
+  place-items: center;
+}
+.pulse {
+  width: 40%;
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(13, 148, 136, 0.8), rgba(245, 158, 11, 0.8));
+  animation: pulse 1.2s infinite ease-in-out alternate;
+}
+@keyframes pulse {
+  from {
+    transform: scale(0.9);
+    filter: brightness(0.9);
+  }
+  to {
+    transform: scale(1.05);
+    filter: brightness(1.1);
+  }
+}
+.label {
+  position: absolute;
+  bottom: 8px;
+  font-weight: 600;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+
+/* Bell button */
+.bell {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 6;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  color: #111827;
+  background: var(--accent);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 10px 24px rgba(245, 158, 11, 0.25), 0 2px 6px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: transform .12s ease, filter .12s ease;
+}
+.bell:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+.bell:active {
+  transform: translateY(0);
+  filter: brightness(0.98);
+}
+
+.hint {
+  position: fixed;
+  left: 50%;
+  bottom: 88px;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--fg);
+  border: 1px solid rgba(229, 231, 235, 0.08);
+  padding: 8px 12px;
+  font-size: 12px;
+  border-radius: 999px;
+  z-index: 5;
+}
+
+/* Utilities */
+.hidden {
+  display: none !important;
+}
+.text-balance {
+  text-wrap: balance;
+}
+
+@media (min-width: 768px) {
+  .title {
+    font-size: 24px;
+  }
+  .subtitle {
+    font-size: 13px;
+  }
+}

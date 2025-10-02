@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>GRAPHITE SKETCH AR</title>
+    <style>
+      :root{
+        --brand:#0ea5e9;         /* primary */
+        --accent:#f59e0b;        /* accent */
+        --bg:#0b0b10;            /* neutral 1 */
+        --fg:#e5e7eb;            /* neutral 2 */
+        --muted:#9ca3af;         /* neutral 3 */
+      }
+      html,body{height:100%;background:var(--bg);color:var(--fg);margin:0;font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";}
+      .app{position:fixed;inset:0;overflow:hidden;}
+      video#camera{
+        position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+        transform:scaleX(-1); /* mirrored UX */
+        background:#000;
+      }
+      /* UI */
+      .hud{
+        position:absolute; inset:0; pointer-events:none; display:flex; flex-direction:column; justify-content:space-between;
+        padding:16px;
+        background: radial-gradient(1200px 600px at 50% -10%, rgba(14,165,233,0.15), transparent 60%);
+      }
+      header{
+        pointer-events:none; text-align:center; margin-top:8px;
+      }
+      .title{
+        display:inline-block; font-weight:800; letter-spacing:0.04em; text-transform:uppercase;
+        font-size: clamp(18px, 4.5vw, 28px); padding:8px 14px; border-radius:999px;
+        background:rgba(14,165,233,0.18); border:1px solid rgba(14,165,233,0.35); color:#e6f6ff; text-shadow:0 1px 0 rgba(0,0,0,.4);
+        box-shadow:0 0 24px rgba(14,165,233,.25) inset, 0 8px 30px rgba(14,165,233,0.1);
+      }
+      .status{
+        pointer-events:none; text-align:center; color:var(--muted); font-size:14px; margin:8px 0 0;
+        text-shadow:0 1px 2px rgba(0,0,0,.5);
+      }
+      .controls{
+        position:absolute; left:50%; bottom:20px; transform:translateX(-50%); display:flex; gap:12px; pointer-events:auto;
+      }
+      .btn{
+        appearance:none; border:none; cursor:pointer;
+        background:linear-gradient(180deg, rgba(14,165,233,0.85), rgba(14,165,233,0.55));
+        color:#001219; font-weight:700; letter-spacing:.02em;
+        padding:14px 18px; border-radius:12px; box-shadow: 0 10px 30px rgba(14,165,233,.35);
+      }
+      .btn:active{ transform:translateY(1px); }
+      .btn.bell{ display:none; align-items:center; gap:8px; }
+      .btn.bell svg{ width:18px; height:18px; }
+
+      /* Guide frame while scanning */
+      .guide{
+        position:absolute; left:50%; top:50%; width:min(70vw, 360px); aspect-ratio:0.75; transform:translate(-50%,-50%);
+        border:2px dashed rgba(229,231,235,.25); border-radius:12px;
+      }
+
+      /* AR overlay container anchored to match box */
+      .ar-layer{
+        position:absolute; left:0; top:0; pointer-events:none;
+        will-change: transform, width, height, opacity; opacity:0; transition:opacity .35s ease;
+      }
+      .ar-layer.active{ opacity:1; }
+      .ar-layer img.gif{
+        position:absolute; inset:0; width:100%; height:100%;
+        object-fit:cover; display:none; border-radius:10px; background:rgba(0,0,0,.2);
+      }
+
+      /* End screen */
+      .end{
+        position:absolute; inset:0; display:none; place-items:center; background:rgba(0,0,0,.6); backdrop-filter: blur(6px);
+      }
+      .end.show{ display:grid; }
+      .end .panel{
+        background:linear-gradient(180deg, rgba(2,6,23,0.8), rgba(2,6,23,0.6));
+        border:1px solid rgba(229,231,235,.14);
+        box-shadow:0 30px 80px rgba(0,0,0,.5), inset 0 0 60px rgba(14,165,233,.08);
+        color:var(--fg); padding:22px 24px; border-radius:16px; text-align:center; max-width:90vw;
+      }
+      .end h2{ margin:0 0 8px; font-size:20px; letter-spacing:.02em; }
+      .end p{ margin:0 0 16px; color:var(--muted); font-size:14px; }
+      .end .btn{ background:linear-gradient(180deg, rgba(245,158,11,0.9), rgba(245,158,11,0.6)); }
+
+      /* Hidden working canvases */
+      canvas#work, canvas#tmpl{ display:none; }
+
+      /* Small sparkle when target locks */
+      .spark{
+        position:absolute; width:8px; height:8px; border-radius:999px; background:#fff;
+        box-shadow:0 0 12px #fff, 0 0 30px var(--brand), 0 0 60px var(--accent);
+        animation: pop .8s ease forwards;
+      }
+      @keyframes pop{
+        0%{ transform:scale(.2); opacity:0; }
+        40%{ transform:scale(1.6); opacity:1; }
+        100%{ transform:scale(1); opacity:.0; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app" id="app">
+       Camera 
+      <video id="camera" muted playsinline autoplay></video>
+
+       Hidden target reference image (for detection) 
+      <img id="refImg" alt="Target reference" crossOrigin="anonymous"
+           src="graphite-target.png"
+           style="position:absolute; left:-9999px; top:-9999px; width:320px; height:auto;" />
+
+       UI HUD 
+      <div class="hud">
+        <header>
+          <div class="title">Welcome to GRAPHITE SKETCH</div>
+          <div class="status" id="status">Tap Start to allow back camera. Then point at the image.</div>
+        </header>
+        <div class="guide" id="guide"></div>
+        <div class="controls">
+          <button class="btn" id="startBtn">Start AR</button>
+          <button class="btn" id="stopBtn" style="display:none;">Stop</button>
+          <button class="btn bell" id="bellBtn" aria-label="Ring bell to start">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 2a1 1 0 0 1 1 1v.28a7 7 0 0 1 5 6.72v3.3l1.38 2.77A1 1 0 0 1 18.5 18h-13a1 1 0 0 1-.88-1.43L6 13.3V10a7 7 0 0 1 5-6.72V3a1 1 0 0 1 1-1Zm0 20a3 3 0 0 1-3-3h6a3 3 0 0 1-3 3Z"/>
+            </svg>
+            Bell
+          </button>
+        </div>
+      </div>
+
+       AR Overlay (anchored where the image is detected) 
+      <div class="ar-layer" id="arLayer" aria-hidden="true">
+        <img id="gif1" class="gif" src="1.gif" alt="" />
+        <img id="gif2" class="gif" src="2.gif" alt="" />
+        <img id="gif3" class="gif" src="3.gif" alt="" />
+      </div>
+
+       End Screen 
+      <div class="end" id="end">
+        <div class="panel">
+          <h2>AR session ended</h2>
+          <p>Thanks for exploring GRAPHITE SKETCH.</p>
+          <button class="btn" id="restartBtn">Restart</button>
+        </div>
+      </div>
+
+       Working canvases 
+      <canvas id="work" width="320" height="240"></canvas>
+      <canvas id="tmpl" width="120" height="160"></canvas>
+
+       Background audio 
+      <audio id="bgm" preload="auto">
+        <source src="song.mp3" type="audio/mpeg" />
+      </audio>
+    </div>
+
+    <script>
+      // ---- Utility: Speech greeting (optional, improves “say welcome” experience) ----
+      function sayWelcome(){
+        try{
+          const u = new SpeechSynthesisUtterance("Welcome to Graphite Sketch");
+          u.rate = 0.95; u.pitch = 1; u.lang = "en-US";
+          speechSynthesis.cancel();
+          speechSynthesis.speak(u);
+        }catch(e){}
+      }
+
+      // ---- Camera setup (back camera) ----
+      const video = document.getElementById('camera');
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      const statusEl = document.getElementById('status');
+      const endScreen = document.getElementById('end');
+      const restartBtn = document.getElementById('restartBtn');
+      const arLayer = document.getElementById('arLayer');
+      const guide = document.getElementById('guide');
+      const bgm = document.getElementById('bgm');
+      const bellBtn = document.getElementById('bellBtn');
+      const gif1 = document.getElementById('gif1');
+      const gif2 = document.getElementById('gif2');
+      const gif3 = document.getElementById('gif3');
+
+      let stream = null;
+      let rafId = null;
+      let scanning = false;
+      let locked = false;
+      let consecutiveHits = 0;
+      let playing = false;
+      let missFrames = 0;
+
+      async function startCamera(){
+        try{
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "environment" } , width:{ideal:1280}, height:{ideal:720} },
+            audio: false
+          });
+          video.srcObject = stream;
+          await video.play();
+        }catch(err){
+          console.error(err);
+          statusEl.textContent = "Camera permission denied or unavailable.";
+        }
+      }
+      function stopCamera(){
+        if(stream){
+          stream.getTracks().forEach(t => t.stop());
+          stream = null;
+        }
+      }
+
+      // ---- Image detection (template matching with downsampling & NCC) ----
+      const work = document.getElementById('work');
+      const wctx = work.getContext('2d',{willReadFrequently:true});
+      const tmpl = document.getElementById('tmpl');
+      const tctx = tmpl.getContext('2d',{willReadFrequently:true});
+      const refImg = document.getElementById('refImg');
+
+      let tW = 120, tH = 160;  // template size (downscaled)
+      let tVec = null, tMean = 0, tNorm = 1;
+
+      function toGray(data){
+        const out = new Float32Array((data.length/4)|0);
+        for(let i=0,j=0;i<data.length;i+=4,j++){
+          // luma
+          out[j] = (0.299*data[i] + 0.587*data[i+1] + 0.114*data[i+2])/255;
+        }
+        return out;
+      }
+      function meanAndNorm(vec){
+        let sum=0; for(let i=0;i<vec.length;i++) sum+=vec[i];
+        const mean = sum/vec.length;
+        let sq=0; for(let i=0;i<vec.length;i++){ const d=vec[i]-mean; sq+=d*d; }
+        const norm = Math.sqrt(sq);
+        return [mean, norm || 1];
+      }
+      function dotNCC(a, aMean, aNorm, b, bMean, bNorm){
+        let s=0;
+        for(let i=0;i<a.length;i++){
+          s += (a[i]-aMean)*(b[i]-bMean);
+        }
+        return s/(aNorm*bNorm);
+      }
+
+      async function prepareTemplate(){
+        await new Promise(res=>{
+          if(refImg.complete) res(); else refImg.onload = res;
+        });
+        // Fit portrait-ish template
+        const r = refImg.naturalHeight/refImg.naturalWidth;
+        tH = Math.round(tW*r);
+        tmpl.width = tW; tmpl.height = tH;
+        tctx.drawImage(refImg, 0, 0, tW, tH);
+        const tData = tctx.getImageData(0,0,tW,tH).data;
+        tVec = toGray(tData);
+        [tMean, tNorm] = meanAndNorm(tVec);
+      }
+
+      function findTarget(){
+        // Resize frame for speed
+        const vw = video.videoWidth || 1280;
+        const vh = video.videoHeight || 720;
+        const scale = 360 / Math.min(vw, vh);
+        const fw = Math.round(vw*scale);
+        const fh = Math.round(vh*scale);
+
+        work.width = fw; work.height = fh;
+        wctx.save();
+        // Since video is mirrored with CSS, redraw mirrored so math matches screen
+        wctx.translate(fw,0); wctx.scale(-1,1);
+        wctx.drawImage(video, 0, 0, fw, fh);
+        wctx.restore();
+
+        const frame = wctx.getImageData(0,0,fw,fh);
+        const fGray = toGray(frame.data);
+        const winW = tW, winH = tH;
+
+        let best = {score:-1, x:0, y:0, w:winW, h:winH};
+        const step = 8; // slide step
+        // Precompute window vec for each pos (naive, but OK at this scale)
+        for(let y=0;y<=fh-winH; y+=step){
+          for(let x=0;x<=fw-winW; x+=step){
+            // Extract window
+            const wVec = new Float32Array(winW*winH);
+            let k=0;
+            for(let yy=0;yy<winH;yy++){
+              const rowStart = (y+yy)*fw + x;
+              for(let xx=0;xx<winW;xx++){
+                wVec[k++] = fGray[rowStart+xx];
+              }
+            }
+            const [wMean, wNorm] = meanAndNorm(wVec);
+            const s = dotNCC(wVec, wMean, wNorm, tVec, tMean, tNorm);
+            if(s>best.score){ best={score:s, x, y, w:winW, h:winH}; }
+          }
+        }
+
+        // Convert back to screen coordinates
+        const screenW = video.clientWidth;
+        const screenH = video.clientHeight;
+        // Mapping from work canvas to video css box
+        const rx = screenW/fw;
+        const ry = screenH/fh;
+
+        return {
+          score: best.score,
+          left: best.x*rx,
+          top: best.y*ry,
+          width: best.w*rx,
+          height: best.h*ry
+        };
+      }
+
+      function showSpark(x,y){
+        const s=document.createElement('div');
+        s.className='spark';
+        s.style.left=(x-4)+'px';
+        s.style.top=(y-4)+'px';
+        s.style.position='absolute';
+        document.body.appendChild(s);
+        setTimeout(()=>s.remove(),800);
+      }
+
+      // ---- AR Flow ----
+      async function startAR(){
+        sayWelcome();
+        startBtn.style.display='none';
+        stopBtn.style.display='inline-block';
+        statusEl.textContent = "Initializing camera...";
+        await Promise.all([startCamera(), prepareTemplate()]);
+        statusEl.textContent = "Point your camera at the reference image.";
+        guide.style.borderColor = 'rgba(14,165,233,.45)';
+
+        bgm.onended = null;
+
+        scanning = true;
+        locked = false;
+        bellBtn.style.display = 'none';
+        playing = false;
+        missFrames = 0;
+        arLayer.classList.remove('active');
+        scanLoop();
+      }
+
+      function scanLoop(){
+        if(!scanning) return;
+        const match = findTarget();
+
+        if(match.score > 0.86){
+          consecutiveHits++;
+          arLayer.style.transform = `translate(${match.left}px, ${match.top}px)`;
+          arLayer.style.width = `${match.width}px`;
+          arLayer.style.height = `${match.height}px`;
+
+          if(!locked && consecutiveHits>=3){
+            locked = true;
+            bellBtn.style.display = 'inline-flex';
+            bellBtn.disabled = false;
+            statusEl.textContent = "Target found. Tap the bell to start GIFs and music.";
+          }
+          if(playing){
+            arLayer.classList.add('active');
+            missFrames = 0;
+          }
+        } else {
+          consecutiveHits = 0;
+          if(!locked){
+            arLayer.classList.remove('active');
+            bellBtn.style.display = 'none';
+          }
+          if(playing){
+            missFrames++;
+            if(missFrames > 8){
+              arLayer.classList.remove('active');
+              statusEl.textContent = "Target lost. Keep the image in view to see the overlay.";
+            }
+          }
+        }
+
+        rafId = requestAnimationFrame(scanLoop);
+      }
+
+      function finishOverlay(){
+        showOnly(null);
+        arLayer.classList.remove('active');
+        playing = false;
+        bellBtn.disabled = false;
+        statusEl.textContent = "Sequence finished. Align again to play once more.";
+      }
+
+      function showOnly(el){
+        [gif1, gif2, gif3].forEach(g=>{ g.style.display='none'; });
+        if(el) el.style.display='block';
+      }
+
+      // Hide GIF if missing file to avoid errors
+      [gif1, gif2, gif3].forEach(img=>{
+        img.addEventListener('error', ()=>{ img.style.display='none'; }, {passive:true});
+      })
+
+      bellBtn.addEventListener('click', async ()=>{
+        if(!locked || playing) return;
+        try{
+          bellBtn.disabled = true;
+          // Start background music
+          bgm.currentTime = 0;
+          await bgm.play();
+
+          // Start 3 GIFs sequentially (5s each = 15s total)
+          playing = true;
+          missFrames = 0;
+          statusEl.textContent = "Playing 3-part sequence…";
+          showOnly(gif1);
+          arLayer.classList.add('active');
+
+          setTimeout(()=> showOnly(gif2), 5000);
+          setTimeout(()=> showOnly(gif3), 10000);
+          setTimeout(()=> {
+            try{ bgm.pause(); }catch(e){}
+            finishOverlay();
+          }, 15000);
+
+        }catch(e){
+          bellBtn.disabled = false;
+          statusEl.textContent = "Unable to start media. Ensure sound is on and try again.";
+        }
+      });
+
+      function stopAR(){
+        scanning = false;
+        cancelAnimationFrame(rafId);
+        try{ bgm.pause(); }catch(e){}
+        arLayer.classList.remove('active');
+        stopBtn.style.display='none';
+        endScreen.classList.add('show');
+        statusEl.textContent = "Session ended.";
+        stopCamera();
+      }
+
+      function restart(){
+        endScreen.classList.remove('show');
+        startBtn.style.display='inline-block';
+        statusEl.textContent = "Tap Start to allow back camera. Then point at the image.";
+      }
+
+      document.addEventListener('visibilitychange', ()=>{
+        if(document.visibilityState==='visible' && stream && video.paused){ video.play(); }
+      }, {passive:true});
+    </script>
+  </body>
+</html>
